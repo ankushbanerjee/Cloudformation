@@ -1,0 +1,112 @@
+Parameters: 
+  myEC2InstanceTypeParameter:
+    Type: String
+    Default : t2.micro
+    AllowedValues : 
+        - t2.micro
+        - m1.small
+        - m1.large
+    Description: Enter t2.micro,m1.small,m1.large. Default is t2.micro
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName  
+    Description: "Name of an existing KeyPair to SSH into the EC2 instance launched"
+  InstanceOSType:
+    Type: String
+    Default: Ubuntu
+    AllowedValues:
+        - Ubuntu
+        - AmazonLinux
+    Description: This is to determine the OS of the EC2 Instance
+Mappings:
+ RegionMap:
+  us-east-1:
+    Ubuntu:  ami-07ebfd5b3428b6f4d
+    AmazonLinux: ami-0323c3dd2da7fb37d
+  us-east-2:
+    Ubuntu:  ami-0fc20dd1da406780b
+    AmazonLinux:  ami-0f7919c33c90f5b58
+  us-west-1:
+    Ubuntu:  03ba3948f6c37a4b0
+    AmazonLinux:  ami-06fcc1f0bc2c8943f
+  us-west-2:
+    Ubuntu:  ami-0d1cd67c26f5fca19
+    AmazonLinux: ami-0d6621c01e8c2de2c
+    
+
+Resources:
+    myEC2Instance:
+      Type: 'AWS::EC2::Instance'
+      Metadata:
+        AWS::CloudFormation::Init:
+          config:
+            packages:
+              yum:
+                httpd: []
+                php: []
+            files: 
+              /var/www/html/index.php:
+                content: !Sub |
+                  <?php print "Hello World Aizel was here!";?>
+            services:
+              sysvinit:
+                httpd:
+                  enabled: true
+                  ensureRunning: true
+                  
+      Properties: 
+        KeyName: !Ref KeyPairName
+        InstanceType: 
+          Ref : myEC2InstanceTypeParameter
+        ImageId: !FindInMap
+                - RegionMap
+                - !Ref 'AWS::Region'
+                - !Ref InstanceOSType
+        Tags:
+          - Key : Name
+            Value : MyEC2Instance
+          - Key: OS 
+            Value : !Join
+                  - ""
+                  - - !Ref InstanceOSType
+                    - "-"
+                    - !Ref 'AWS::Region'
+
+        UserData:
+          'Fn::Base64':
+            !Sub |
+              #!/bin/bash -xe            
+              # Ensure AWS CFN Bootstrap is the latest
+              yum install -y aws-cfn-bootstrap
+              # Install the files and packages from the metadata
+              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource myEC2Instance  --region ${AWS::Region}
+
+        SecurityGroups:
+          - !Ref  myEC2SecurityGroup
+      
+    myEC2SecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+        GroupDescription : Open TCP Port 80 and allow SSH access to the Linux instance from my laptop
+        SecurityGroupIngress : 
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: '76.30.60.243/32' #Type WhatsMyIP from Google to find your IP address
+
+
+Outputs:
+  InstanceDns:
+    Description: 
+      The Instance DNS 
+    Value:
+      !GetAtt
+        - myEC2Instance
+        - PublicDnsName
+  Website:
+    Description:
+      The Public Dns for the EC2 instance
+    Value: !Sub 'http://${myEC2Instance.PublicDnsName}'
